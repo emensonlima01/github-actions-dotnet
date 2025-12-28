@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+    outputs:
+      app_name: ${{ steps.app-metadata.outputs.app_name }}
+      app_version: ${{ steps.app-metadata.outputs.app_version }}
     steps:
       - name: "Checkout source"
         uses: actions/checkout@v4
@@ -24,6 +27,32 @@ jobs:
 
       - name: "SDK diagnostics"
         run: dotnet --info
+
+      - name: "Resolve application metadata"
+        id: app-metadata
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import xml.etree.ElementTree as ET
+
+          proj = pathlib.Path("Solution/WebApi/WebApi.csproj")
+          tree = ET.parse(proj)
+          root = tree.getroot()
+
+          def find(tag):
+            elem = root.find(f".//{tag}")
+            return elem.text.strip() if elem is not None and elem.text else ""
+
+          version = find("AssemblyVersion") or find("Version")
+          if not version:
+            raise SystemExit("Version not found in WebApi.csproj")
+
+          app_name = proj.stem
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+            f.write(f"app_name={app_name}\n")
+            f.write(f"app_version={version}\n")
+          PY
 
   restore-packages:
     name: "Restore Packages"
@@ -53,21 +82,23 @@ jobs:
       - name: "Publish NuGet packages"
         uses: actions/upload-artifact@v4
         with:
-          name: nuget-packages
+          name: ${{ needs.prepare-environment.outputs.app_name }}-${{ needs.prepare-environment.outputs.app_version }}-nuget-packages-cache
           path: .nuget/packages
           if-no-files-found: error
+          retention-days: 7
 
       - name: "Publish restore artifacts"
         uses: actions/upload-artifact@v4
         with:
-          name: restore-obj
+          name: ${{ needs.prepare-environment.outputs.app_name }}-${{ needs.prepare-environment.outputs.app_version }}-dotnet-restore-obj
           path: Solution/**/obj
           if-no-files-found: error
+          retention-days: 7
 
   build-solution:
     name: "Build Solution"
     runs-on: ubuntu-latest
-    needs: restore-packages
+    needs: [restore-packages, prepare-environment]
     env:
       NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     steps:
@@ -83,13 +114,13 @@ jobs:
       - name: "Download restore artifacts"
         uses: actions/download-artifact@v4
         with:
-          name: restore-obj
+          name: ${{ needs.prepare-environment.outputs.app_name }}-${{ needs.prepare-environment.outputs.app_version }}-dotnet-restore-obj
           path: Solution
 
       - name: "Download NuGet packages"
         uses: actions/download-artifact@v4
         with:
-          name: nuget-packages
+          name: ${{ needs.prepare-environment.outputs.app_name }}-${{ needs.prepare-environment.outputs.app_version }}-nuget-packages-cache
           path: .nuget/packages
 
       - name: "Build (Release)"
@@ -98,14 +129,15 @@ jobs:
       - name: "Publish build artifacts"
         uses: actions/upload-artifact@v4
         with:
-          name: build-bin
+          name: ${{ needs.prepare-environment.outputs.app_name }}-${{ needs.prepare-environment.outputs.app_version }}-build-release-bin
           path: Solution/**/bin/Release
           if-no-files-found: error
+          retention-days: 7
 
   run-tests:
     name: "Run Tests"
     runs-on: ubuntu-latest
-    needs: build-solution
+    needs: [build-solution, prepare-environment]
     env:
       NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     steps:
@@ -121,28 +153,52 @@ jobs:
       - name: "Download restore artifacts"
         uses: actions/download-artifact@v4
         with:
-          name: restore-obj
+          name: ${{ needs.prepare-environment.outputs.app_name }}-${{ needs.prepare-environment.outputs.app_version }}-dotnet-restore-obj
           path: Solution
 
       - name: "Download NuGet packages"
         uses: actions/download-artifact@v4
         with:
-          name: nuget-packages
+          name: ${{ needs.prepare-environment.outputs.app_name }}-${{ needs.prepare-environment.outputs.app_version }}-nuget-packages-cache
           path: .nuget/packages
 
       - name: "Download build artifacts"
         uses: actions/download-artifact@v4
         with:
-          name: build-bin
+          name: ${{ needs.prepare-environment.outputs.app_name }}-${{ needs.prepare-environment.outputs.app_version }}-build-release-bin
           path: Solution
 
       - name: "Unit tests"
         run: dotnet test Solution/Solution.slnx --configuration Release --no-build --no-restore
 
+  detect-changes:
+    name: "Detect Changes"
+    runs-on: ubuntu-latest
+    outputs:
+      webapi: ${{ steps.filter.outputs.webapi }}
+    steps:
+      - name: "Checkout source"
+        uses: actions/checkout@v4
+
+      - name: "Filter WebApi changes"
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            webapi:
+              - 'Solution/WebApi/**'
+              - 'Solution/IoC/**'
+              - 'Solution/Application/**'
+              - 'Solution/Domain/**'
+              - 'Solution/Infrastructure/**'
+              - 'Solution/docker-compose.yml'
+              - 'Solution/Solution.slnx'
+
   docker-build:
     name: "Build Docker"
     runs-on: ubuntu-latest
-    needs: run-tests
+    needs: [run-tests, detect-changes]
+    if: needs.detect-changes.outputs.webapi == 'true'
     steps:
       - name: "Checkout source"
         uses: actions/checkout@v4
