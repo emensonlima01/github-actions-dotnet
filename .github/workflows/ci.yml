@@ -1,4 +1,4 @@
-name: cidd
+name: WebApi
 
 on:
   push:
@@ -54,6 +54,9 @@ jobs:
           dotnet-version: "10.0.x"
           dotnet-quality: "preview"
 
+      - name: "Restore solution"
+        run: dotnet restore Solution/Solution.slnx
+
       - name: "Build (Release)"
         run: dotnet build Solution/Solution.slnx --configuration Release --no-restore
 
@@ -70,6 +73,9 @@ jobs:
         with:
           dotnet-version: "10.0.x"
           dotnet-quality: "preview"
+
+      - name: "Restore solution"
+        run: dotnet restore Solution/Solution.slnx
 
       - name: "Unit tests"
         run: dotnet test Solution/Solution.slnx --configuration Release --no-build
