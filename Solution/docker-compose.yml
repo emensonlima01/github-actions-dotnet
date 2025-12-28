@@ -60,6 +60,16 @@ services:
       retries: 3
       start_period: 10s
 
+  tests:
+    image: mcr.microsoft.com/dotnet/sdk:10.0-alpine
+    working_dir: /src
+    volumes:
+      - ./:/src
+    command: >
+      sh -c "dotnet test Solution/UnitTest/UnitTest.csproj --configuration Release"
+    profiles:
+      - test
+
 volumes:
   mongodb-data:
     driver: local
