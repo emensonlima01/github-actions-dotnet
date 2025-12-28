@@ -37,8 +37,21 @@ jobs:
           dotnet-version: "10.0.x"
           dotnet-quality: "preview"
 
+      - name: "Cache NuGet packages"
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Solution/**/*.csproj', 'Solution/**/*.slnx', 'Solution/**/Directory.Packages.props', 'Solution/**/nuget.config') }}
+
       - name: "Restore solution"
         run: dotnet restore Solution/Solution.slnx
+
+      - name: "Publish restore artifacts"
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-obj
+          path: Solution/**/obj
+          if-no-files-found: error
 
   build-solution:
     name: "Build Solution"
@@ -54,11 +67,21 @@ jobs:
           dotnet-version: "10.0.x"
           dotnet-quality: "preview"
 
-      - name: "Restore solution"
-        run: dotnet restore Solution/Solution.slnx
+      - name: "Download restore artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: restore-obj
+          path: Solution
 
       - name: "Build (Release)"
         run: dotnet build Solution/Solution.slnx --configuration Release --no-restore
+
+      - name: "Publish build artifacts"
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-bin
+          path: Solution/**/bin/Release
+          if-no-files-found: error
 
   run-tests:
     name: "Run Tests"
@@ -74,11 +97,20 @@ jobs:
           dotnet-version: "10.0.x"
           dotnet-quality: "preview"
 
-      - name: "Restore solution"
-        run: dotnet restore Solution/Solution.slnx
+      - name: "Download restore artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: restore-obj
+          path: Solution
+
+      - name: "Download build artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: build-bin
+          path: Solution
 
       - name: "Unit tests"
-        run: dotnet test Solution/Solution.slnx --configuration Release --no-restore
+        run: dotnet test Solution/Solution.slnx --configuration Release --no-build --no-restore
 
   docker-build:
     name: "Build Docker"
