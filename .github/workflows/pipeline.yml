@@ -78,7 +78,7 @@ jobs:
         run: dotnet restore Solution/Solution.slnx
 
       - name: "Unit tests"
-        run: dotnet test Solution/Solution.slnx --configuration Release --no-build
+        run: dotnet test Solution/Solution.slnx --configuration Release --no-restore
 
   docker-build:
     name: "Build Docker"
